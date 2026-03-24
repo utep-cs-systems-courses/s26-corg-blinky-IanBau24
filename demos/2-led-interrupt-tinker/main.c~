@@ -1,0 +1,27 @@
+//Alternate LEDsA from Off, Green, and Red
+#include <msp430.h>
+#include "libTimer.h"
+#include "led.h"
+
+int main(void) {
+  P1DIR |= LEDS;
+  P1OUT &= ~LED_GREEN;
+  P1OUT |= LED_RED;
+
+  configureClocks();		/* setup master oscillator, CPU & peripheral clocks */
+  enableWDTInterrupts();	/* enable periodic interrupt */
+  
+  or_sr(0x18);		/* CPU off, GIE on */
+}
+
+
+void
+__interrupt_vec(WDT_VECTOR) WDT()	/* 250 interrupts/sec */
+{
+  static int interruptCount = 0; // makes a static variable outisde of the function, only accessible in this function, global to be accessible in all functions
+  interruptCount ++;
+  if (interruptCount > 250) P1OUT |= LED_GREEN;
+  //  P1OUT |= LED_GREEN;
+  // first task, make green led flash once a second, then turn off
+  // second task, make red led flash everfy 2 sec and green led flash every sec
+} 

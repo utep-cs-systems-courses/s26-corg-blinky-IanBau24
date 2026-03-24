@@ -1,0 +1,125 @@
+#include <msp430.h>
+#include "libTimer.h"
+#include "buzzer.h"
+#include <stdbool.h> // to use boolean
+
+#define LED_RED BIT0
+#define LED_GREEN BIT6
+#define LEDS (BIT0 | BIT6)
+
+//Define swtiches
+#define SW1 BIT3
+
+// Green Board Switches using port 2
+#define S3 BIT2          
+#define S1 BIT0       
+#define S2 BIT1
+#define S4 BIT3
+
+#define P2_SWITCHES (S3 | S1 | S2 | S4)
+#define SWITCHES SW1
+
+int main() {
+    configureClocks();
+    enableWDTInterrupts();
+    buzzer_init();
+
+    // Wire leds to pidir and set them to on by default
+    P1DIR |= LEDS;
+    P1OUT |= LEDS;
+
+    P1REN |= SWITCHES;
+    P1IE |= SWITCHES;
+    P1OUT |= SWITCHES;
+    P1DIR &= ~SWITCHES;
+
+    P2REN |= P2_SWITCHES;    // enable pull resistors
+P2IE  |= P2_SWITCHES;    // enable interrupts
+P2OUT |= P2_SWITCHES;    // pull-up (switch reads high when not pressed)
+ P2DIR &= ~P2_SWITCHES;   // set as input
+
+    or_sr(0x18);          // CPU off, GIE on
+}
+
+static int interruptCount = 0;
+static bool buttonPress = 0;
+
+void __interrupt_vec(WDT_VECTOR) WDT() //250 interrupts per second, based on clock cycle
+{
+  if(!buttonPress) return; // if the switch hasn't been pressed don't play the sequence
+  
+  interruptCount++;
+  if(interruptCount > 0) buzzer_set_period(note('D'));
+  if(interruptCount > 50) buzzer_set_period(note('E')); // at 1 sec change speaker frequency to note E
+  if(interruptCount > 100) buzzer_set_period(note('F'));
+  if(interruptCount > 150) buzzer_set_period(note('G'));
+  if(interruptCount > 200) buzzer_set_period(note('E')); // at 1 sec change speaker frequency to note E
+  if(interruptCount > 300) buzzer_set_period(note('C'));
+  if(interruptCount > 350) buzzer_set_period(note('D'));
+  if(interruptCount > 600){
+    interruptCount = 0;
+    buttonPress = 0;
+    buzzer_set_period(1); // set to 2MHz
+  }
+}
+
+void switchHandler(){
+  char p1val = P1IN; // switch state is saved to p1val
+
+  // switch logic to update interrupt
+  P1IES |= (p1val & SWITCHES);
+  P1IES &= (p1val | ~SWITCHES);
+
+  if (p1val & SW1){
+    P1OUT |= LED_RED;
+    P1OUT &= ~LED_GREEN;
+    // change the button press and reset counter
+    buttonPress = 1;
+    interruptCount = 0;
+  } else {
+    P1OUT |= LED_GREEN;
+    P1OUT &= ~LED_RED;
+  }
+
+}
+
+void greenBoardHandler() {
+    char p2val = P2IN;
+
+    P2IES |= (p2val & P2_SWITCHES);
+    P2IES &= (p2val | ~P2_SWITCHES);
+
+    // Set leds depending on button pressed
+    if (!(p2val & S3)) {
+        P1OUT |= LED_RED;
+        P1OUT &= ~LED_GREEN;
+	buttonPress = 1;
+    } else if (!(p2val & S2)) {
+        P1OUT |= LED_GREEN;
+        P1OUT &= ~LED_RED;
+    } else if(!(p2val & S1)){
+      P1OUT |= LED_GREEN;
+      P1OUT &= ~LED_RED;
+    } else if(!(p2val & S4)){
+      P1OUT |= LEDS;
+    }
+    else {
+      P1OUT &= ~(LED_RED | LED_GREEN); // turn leds off
+    }
+}
+
+
+void __interrupt_vec(PORT1_VECTOR) Port_1(){
+  if (P1IFG & SWITCHES) { // did a button cause this interrupt
+    P1IFG &= ~ SWITCHES; // clear pending sw interrupts
+    switchHandler(); // call handler to do logic based on interrupt, will handle all switches
+  }
+
+}
+
+void __interrupt_vec(PORT2_VECTOR) Port_2() {
+    if (P2IFG & P2_SWITCHES) {
+        P2IFG &= ~P2_SWITCHES;      // clear interrupt flag
+        greenBoardHandler();
+    }
+}
